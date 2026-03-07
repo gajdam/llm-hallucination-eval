@@ -1,0 +1,50 @@
+# FEVER dataset settings
+fever:
+  split: "labelled_dev"        # train | labelled_dev | paper_dev | paper_test
+  max_samples: 200              # null = use all samples
+  labels: ["SUPPORTS", "REFUTES"]
+  seed: 42
+
+# LLMs to evaluate — comment out any you don't have API keys for
+llms:
+  - name: "claude-opus-4-6"
+    provider: "anthropic"
+  - name: "claude-sonnet-4-6"
+    provider: "anthropic"
+  - name: "claude-haiku-4-5"
+    provider: "anthropic"
+  - name: "gpt-4o"
+    provider: "openai"
+  - name: "gpt-4o-mini"
+    provider: "openai"
+  - name: "llama3.2"
+    provider: "ollama"
+    base_url: "http://localhost:11434"
+
+# NLI model for comparing LLM responses against claims
+nli:
+  # Options (tradeoff between speed and quality):
+  #   cross-encoder/nli-deberta-v3-large   ~1.5GB, best quality
+  #   cross-encoder/nli-MiniLM2-L6-H768   ~67MB, fast
+  #   facebook/bart-large-mnli            ~1.6GB, strong alternative
+  model: "cross-encoder/nli-deberta-v3-large"
+  batch_size: 16
+  device: "auto"     # auto | cpu | cuda | mps
+  max_length: 512    # max tokens for premise+hypothesis
+
+# Prompts sent to each LLM
+prompts:
+  system: >
+    You are a factual assistant. Provide accurate, concise information based
+    on your knowledge. Do not speculate beyond what you know.
+  user_template: >
+    Please provide accurate factual information about the following statement.
+    Be specific and concise (2-4 sentences).
+
+    Statement: {claim}
+
+# Evaluation settings
+evaluation:
+  output_dir: "results"
+  save_responses: true   # save raw LLM responses to disk
+  request_delay: 0.5     # seconds between API calls (avoid rate limits)
