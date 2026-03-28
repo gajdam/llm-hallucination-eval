@@ -105,7 +105,7 @@ class EvaluationPipeline:
         metrics = LLMMetrics(model_name=llm.name, provider=llm.provider)
 
         # --- Step A: generate LLM responses ---
-        responses: list[tuple[FeverSample, str, Optional[str]]] = []
+        responses: list[tuple[FeverSample, str, Optional[str], float, dict]] = []
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold]{task.description}"),
@@ -117,15 +117,17 @@ class EvaluationPipeline:
             task = progress.add_task("Generating responses", total=len(samples))
             for sample in samples:
                 prompt = user_template.format(claim=sample.claim)
+                t0 = time.perf_counter()
                 response = llm.generate(prompt, system=system_prompt)
-                responses.append((sample, response.text, response.error))
+                latency = time.perf_counter() - t0
+                responses.append((sample, response.text, response.error, latency, response.usage))
                 progress.advance(task)
                 if not response.failed:
                     time.sleep(request_delay)
 
         # --- Step B: run NLI in batch ---
         valid_pairs: list[tuple[int, str, str]] = []  # (index, premise, hypothesis)
-        for i, (sample, text, error) in enumerate(responses):
+        for i, (sample, text, error, latency, usage) in enumerate(responses):
             if not error and text.strip():
                 valid_pairs.append((i, sample.claim, text))
 
@@ -138,8 +140,10 @@ class EvaluationPipeline:
                 nli_results_map[idx] = nli_result
 
         # --- Step C: compute per-sample hallucination ---
-        for i, (sample, text, error) in enumerate(responses):
+        for i, (sample, text, error, latency, usage) in enumerate(responses):
             nli_result = nli_results_map.get(i)
+            input_tokens = usage.get("input_tokens", 0) if usage else 0
+            output_tokens = usage.get("output_tokens", 0) if usage else 0
             if nli_result is None:
                 # API error or empty response
                 sr = SampleResult(
@@ -153,6 +157,9 @@ class EvaluationPipeline:
                     nli_neutral=0.0,
                     nli_contradiction=0.0,
                     hallucination=None,
+                    latency_s=latency,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                 )
             else:
                 hallucination = is_hallucination(sample.label, nli_result)
@@ -167,6 +174,9 @@ class EvaluationPipeline:
                     nli_neutral=nli_result.neutral,
                     nli_contradiction=nli_result.contradiction,
                     hallucination=hallucination,
+                    latency_s=latency,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
                 )
             metrics.add_result(sr)
 
