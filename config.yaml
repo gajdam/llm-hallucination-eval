@@ -35,13 +35,20 @@ nli:
 # Prompts sent to each LLM
 prompts:
   system: >
-    You are a factual assistant. Provide accurate, concise information based
-    on your knowledge. Do not speculate beyond what you know.
+    You are a fact-checking assistant. Your task is to verify whether
+    statements are true or false based on your knowledge.
   user_template: >
-    Please provide accurate factual information about the following statement.
-    Be specific and concise (2-4 sentences).
+    Is the following statement TRUE or FALSE?
+    Start your response with "TRUE:" or "FALSE:", then give a one-sentence explanation.
 
     Statement: {claim}
+
+# Claim quality filters — applied before max_samples cap
+# Set enabled: false to turn off all filtering at once
+filtering:
+  enabled: true
+  min_words: 8                    # drop claims shorter than N words
+  filter_vague_predicates: true   # drop "[X] is/are a [word]." patterns
 
 # Evaluation settings
 evaluation:

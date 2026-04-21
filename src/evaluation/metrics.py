@@ -46,6 +46,16 @@ TOKEN_COST_PER_1K: dict[str, dict[str, Optional[float]]] = {
 }
 
 
+def _parse_verdict(text: str) -> Optional[bool]:
+    """Return True if response starts with TRUE:, False if FALSE:, None if unclear."""
+    t = text.strip().upper()
+    if t.startswith("TRUE"):
+        return True
+    if t.startswith("FALSE"):
+        return False
+    return None
+
+
 # ------------------------------------------------------------------
 # Per-sample result
 # ------------------------------------------------------------------
@@ -203,9 +213,13 @@ class LLMMetrics:
     def _binary_arrays(self) -> tuple[list[int], list[int]]:
         """Build (y_true, y_pred) for binary hallucination classification.
 
-        Skips samples with llm_error set or hallucination is None.
-        y_true = 1 for (SUPPORTS+CONTRADICTION) or (REFUTES+ENTAILMENT), else 0.
-        y_pred = 1 if hallucination == True, else 0.
+        y_true: derived from the LLM's explicit TRUE/FALSE verdict vs FEVER label.
+                1 = LLM's verdict contradicts FEVER (hallucination by explicit statement).
+                Samples without a parseable verdict are skipped.
+        y_pred: 1 if NLI-based hallucination detection fired, else 0.
+
+        This avoids the circular dependency where both y_true and y_pred
+        would otherwise be derived from the same NLI output.
         Returns ([], []) when no valid samples.
         """
         y_true: list[int] = []
@@ -213,11 +227,16 @@ class LLMMetrics:
         for r in self.sample_results:
             if r.llm_error or r.hallucination is None:
                 continue
-            is_true_halluc = (
-                (r.fever_label == "SUPPORTS" and r.nli_label == "CONTRADICTION")
-                or (r.fever_label == "REFUTES" and r.nli_label == "ENTAILMENT")
-            )
-            y_true.append(1 if is_true_halluc else 0)
+            verdict = _parse_verdict(r.llm_response)
+            if verdict is None:
+                continue
+            # Ground truth: LLM's stated verdict vs FEVER label
+            if r.fever_label == "SUPPORTS":
+                y_true.append(0 if verdict else 1)   # said FALSE on true claim = hallucination
+            elif r.fever_label == "REFUTES":
+                y_true.append(1 if verdict else 0)   # said TRUE on false claim = hallucination
+            else:
+                continue
             y_pred.append(1 if r.hallucination else 0)
         return y_true, y_pred
 

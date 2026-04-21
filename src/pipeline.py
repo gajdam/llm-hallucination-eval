@@ -39,11 +39,15 @@ class EvaluationPipeline:
         cfg = self.config
 
         # 1. Load FEVER samples
+        filter_cfg = cfg.get("filtering", {})
+        filtering_on = filter_cfg.get("enabled", False)
         samples = load_fever_samples(
             split=cfg["fever"]["split"],
             max_samples=cfg["fever"].get("max_samples"),
             labels=cfg["fever"]["labels"],
             seed=cfg["fever"].get("seed", 42),
+            min_words=filter_cfg.get("min_words", 0) if filtering_on else 0,
+            filter_vague_predicates=filter_cfg.get("filter_vague_predicates", False) and filtering_on,
         )
 
         # 2. Build LLM instances
@@ -126,10 +130,11 @@ class EvaluationPipeline:
                     time.sleep(request_delay)
 
         # --- Step B: run NLI in batch ---
+        # premise=llm_response, hypothesis=claim: asks "does the response imply the claim?"
         valid_pairs: list[tuple[int, str, str]] = []  # (index, premise, hypothesis)
         for i, (sample, text, error, latency, usage) in enumerate(responses):
             if not error and text.strip():
-                valid_pairs.append((i, sample.claim, text))
+                valid_pairs.append((i, text, sample.claim))
 
         nli_results_map: dict[int, object] = {}
         if valid_pairs:

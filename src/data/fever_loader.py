@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -10,6 +11,9 @@ from datasets import load_dataset
 from rich.console import Console
 
 console = Console()
+
+# Matches "[Subject] is/are a/an [1-3 words]." — too vague for NLI
+_VAGUE_CLAIM = re.compile(r"^.+\s+(?:is|are)\s+an?\s+\w+(?:\s+\w+){0,2}\.?$", re.IGNORECASE)
 
 
 @dataclass
@@ -24,6 +28,8 @@ def load_fever_samples(
     max_samples: Optional[int] = None,
     labels: Optional[list[str]] = None,
     seed: int = 42,
+    min_words: int = 0,
+    filter_vague_predicates: bool = False,
 ) -> list[FeverSample]:
     """Load FEVER claims from HuggingFace datasets.
 
@@ -31,9 +37,13 @@ def load_fever_samples(
     (once per evidence sentence). This function deduplicates by claim text
     and filters to the requested label types.
 
+    Filtering (applied before capping max_samples):
+        min_words:               Drop claims shorter than this word count.
+        filter_vague_predicates: Drop claims matching "[X] is/are a [word]."
+
     Args:
         split:       Dataset split. Options: train, labelled_dev, paper_dev, paper_test.
-        max_samples: Cap on number of samples. None = all.
+        max_samples: Cap on number of samples (applied after filtering).
         labels:      Label types to include. Defaults to ["SUPPORTS", "REFUTES"].
         seed:        Random seed for shuffling before capping.
 
@@ -67,6 +77,17 @@ def load_fever_samples(
             )
 
     samples = list(seen.values())
+
+    # Apply quality filters before capping — so max_samples applies to filtered set
+    if min_words > 0:
+        before = len(samples)
+        samples = [s for s in samples if len(s.claim.split()) >= min_words]
+        console.print(f"  min_words={min_words}: kept {len(samples)}/{before} claims")
+
+    if filter_vague_predicates:
+        before = len(samples)
+        samples = [s for s in samples if not _VAGUE_CLAIM.match(s.claim)]
+        console.print(f"  filter_vague_predicates: kept {len(samples)}/{before} claims")
 
     # Shuffle with fixed seed so experiments are reproducible
     rng = random.Random(seed)
