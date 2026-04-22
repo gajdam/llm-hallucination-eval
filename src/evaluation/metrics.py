@@ -475,6 +475,7 @@ def save_results(
     metrics_list: list[LLMMetrics],
     output_dir: str,
     save_responses: bool = True,
+    config: Optional[dict] = None,
 ) -> None:
     """Save metrics and (optionally) raw sample results to disk."""
     out = Path(output_dir)
@@ -508,6 +509,15 @@ def save_results(
     for m in metrics_list:
         _plot_confusion_matrix(m, out)
         _plot_error_categories(m, out)
+
+    # Interactive HTML report
+    try:
+        from src.reporting.html_report import generate_html_report
+        report_path = generate_html_report(metrics_list, output_dir, config=config)
+        if report_path:
+            console.print(f"Saved report  → [cyan]{report_path}[/cyan]")
+    except Exception as exc:
+        console.print(f"[yellow]HTML report skipped: {exc}[/yellow]")
 
 
 # ------------------------------------------------------------------
