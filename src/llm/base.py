@@ -14,10 +14,15 @@ class LLMResponse:
     provider: str
     usage: dict = field(default_factory=dict)
     error: Optional[str] = None
+    latency_s: float = 0.0
 
     @property
     def failed(self) -> bool:
         return self.error is not None
+
+    @property
+    def total_tokens(self) -> int:
+        return self.usage.get("input_tokens", 0) + self.usage.get("output_tokens", 0)
 
 
 class BaseLLM(ABC):
