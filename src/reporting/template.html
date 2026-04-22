@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Hallucination Report</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body {
+      background: #f0f2f5;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      color: #1a1a2e;
+    }
+
+    /* ---- Layout ---- */
+    .page-header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+      color: white;
+      padding: 2.5rem 2rem 2rem;
+      margin-bottom: 2rem;
+    }
+    .page-header h1 { font-weight: 700; font-size: 1.9rem; margin-bottom: .25rem; }
+    .page-header .meta { font-size: .85rem; opacity: .7; }
+    .page-header .meta strong { opacity: .95; }
+    .main-content { padding: 0 1.5rem 3rem; }
+
+    /* ---- Cards ---- */
+    .card {
+      border: none;
+      border-radius: 10px;
+      box-shadow: 0 1px 5px rgba(0,0,0,.09);
+    }
+    .stat-card {
+      background: white;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 1px 5px rgba(0,0,0,.09);
+      height: 100%;
+    }
+    .stat-card .stat-label {
+      font-size: .73rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #888;
+      margin-bottom: .3rem;
+    }
+    .stat-card .stat-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .stat-card .stat-sub {
+      font-size: .78rem;
+      color: #888;
+      margin-top: .2rem;
+    }
+    .stat-card.accent-green .stat-value { color: #1a7f4b; }
+    .stat-card.accent-red   .stat-value { color: #c0392b; }
+
+    /* ---- Section headings ---- */
+    .section-heading {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #333;
+      border-left: 4px solid #4C72B0;
+      padding-left: .75rem;
+      margin: 2rem 0 1rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    /* ---- Summary table ---- */
+    .table thead th {
+      background: #f4f6f9;
+      font-size: .78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: #555;
+      border-bottom: 2px solid #dee2e6;
+    }
+    .table tbody td {
+      font-size: .85rem;
+      vertical-align: middle;
+    }
+    .table tbody tr:hover { background: #fafbff; }
+    .badge-provider {
+      font-size: .68rem;
+      font-weight: 500;
+      background: #e9ecef;
+      color: #495057;
+      border-radius: 4px;
+      padding: 2px 6px;
+    }
+
+    /* ---- Chart tabs ---- */
+    .nav-tabs { border-bottom: 2px solid #dee2e6; }
+    .nav-tabs .nav-link {
+      color: #666;
+      border: none;
+      border-bottom: 3px solid transparent;
+      border-radius: 0;
+      padding: .55rem 1.1rem;
+      font-size: .88rem;
+      font-weight: 500;
+      margin-bottom: -2px;
+    }
+    .nav-tabs .nav-link:hover { color: #4C72B0; border-color: transparent; }
+    .nav-tabs .nav-link.active {
+      color: #4C72B0;
+      border-bottom-color: #4C72B0;
+      background: transparent;
+      font-weight: 700;
+    }
+    .tab-pane { padding-top: 1rem; }
+
+    /* ---- Accordion ---- */
+    .accordion-item {
+      border: none;
+      border-radius: 10px !important;
+      box-shadow: 0 1px 5px rgba(0,0,0,.09);
+      overflow: hidden;
+    }
+    .accordion-button {
+      font-weight: 600;
+      font-size: .9rem;
+      background: white;
+      color: #1a1a2e;
+    }
+    .accordion-button:not(.collapsed) {
+      background: #eef2ff;
+      color: #2563eb;
+      box-shadow: none;
+    }
+    .accordion-button:focus { box-shadow: none; }
+    .accordion-meta {
+      font-size: .8rem;
+      color: #888;
+      margin-left: auto;
+      padding-right: 2rem;
+      font-weight: 400;
+    }
+    .accordion-meta strong { color: #444; }
+    .detail-table td:first-child { color: #666; font-size: .82rem; }
+    .detail-table td:last-child  { font-weight: 600; font-size: .82rem; text-align: right; }
+
+    /* ---- Footer ---- */
+    footer {
+      font-size: .78rem;
+      color: #aaa;
+      text-align: center;
+      padding: 2rem 0;
+      border-top: 1px solid #e9ecef;
+      margin-top: 2rem;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- Header                                                            -->
+<!-- ================================================================ -->
+<div class="page-header">
+  <div class="container-fluid">
+    <h1>LLM Hallucination Evaluation Report</h1>
+    <div class="meta mt-2">
+      <strong>Generated:</strong> {{ generated_at }} &nbsp;&middot;&nbsp;
+      <strong>Dataset:</strong> {{ dataset }} ({{ split }}) &nbsp;&middot;&nbsp;
+      <strong>NLI model:</strong> {{ nli_model }}
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid main-content">
+
+<!-- ================================================================ -->
+<!-- Summary cards                                                     -->
+<!-- ================================================================ -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Models evaluated</div>
+      <div class="stat-value">{{ n_models }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div class="stat-label">Samples per model</div>
+      <div class="stat-value">{{ n_samples }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card accent-green">
+      <div class="stat-label">Best model</div>
+      <div class="stat-value" style="font-size:1.15rem">{{ best_model }}</div>
+      <div class="stat-sub">{{ best_rate }} hallucination rate</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card accent-red">
+      <div class="stat-label">Worst model</div>
+      <div class="stat-value" style="font-size:1.15rem">{{ worst_model }}</div>
+      <div class="stat-sub">{{ worst_rate }} hallucination rate</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- Summary table                                                     -->
+<!-- ================================================================ -->
+<div class="section-heading">Results Summary</div>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="text-end">Samples</th>
+            <th class="text-end">Errors</th>
+            <th class="text-end">Halluc. Rate</th>
+            <th class="text-end">Accuracy</th>
+            <th class="text-end">SUPPORTS</th>
+            <th class="text-end">REFUTES</th>
+            <th class="text-end">F1</th>
+            <th class="text-end">Kappa</th>
+            <th class="text-end">Avg Latency</th>
+            <th class="text-end">Cost / 1k</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_rows %}
+          <tr>
+            <td>
+              <strong>{{ row.model }}</strong><br>
+              <span class="badge-provider">{{ row.provider }}</span>
+            </td>
+            <td class="text-end">{{ row.n_total }}</td>
+            <td class="text-end {% if row.n_errors > 0 %}text-danger fw-bold{% endif %}">
+              {{ row.n_errors }}
+            </td>
+            <td class="text-end fw-bold" style="{{ row.halluc_color }}">{{ row.halluc_rate }}</td>
+            <td class="text-end"          style="{{ row.accuracy_color }}">{{ row.accuracy }}</td>
+            <td class="text-end"          style="{{ row.supports_color }}">{{ row.supports_rate }}</td>
+            <td class="text-end"          style="{{ row.refutes_color }}">{{ row.refutes_rate }}</td>
+            <td class="text-end">{{ row.f1 }}</td>
+            <td class="text-end">{{ row.kappa }}</td>
+            <td class="text-end">{{ row.avg_latency }}</td>
+            <td class="text-end">{{ row.cost_per_1k }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- Charts                                                            -->
+<!-- ================================================================ -->
+<div class="section-heading">Charts</div>
+<div class="card mb-4">
+  <div class="card-body">
+    <ul class="nav nav-tabs mb-3" id="chartTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-halluc" type="button">
+          Hallucination Rates
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-nli" type="button">
+          NLI Analysis
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-class" type="button">
+          Classification Metrics
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-perf" type="button">
+          Performance
+        </button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cost" type="button">
+          Cost Analysis
+        </button>
+      </li>
+      {% if heatmap_chart %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-heatmap" type="button">
+          Overview Heatmap
+        </button>
+      </li>
+      {% endif %}
+    </ul>
+
+    <div class="tab-content" id="chartTabsContent">
+      <div class="tab-pane fade show active" id="tab-halluc" role="tabpanel">
+        {{ hallucination_chart | safe }}
+      </div>
+      <div class="tab-pane fade" id="tab-nli" role="tabpanel">
+        {{ nli_chart | safe }}
+      </div>
+      <div class="tab-pane fade" id="tab-class" role="tabpanel">
+        {{ classification_chart | safe }}
+      </div>
+      <div class="tab-pane fade" id="tab-perf" role="tabpanel">
+        <div class="row g-3">
+          <div class="col-md-6">{{ latency_chart | safe }}</div>
+          <div class="col-md-6">{{ tokens_chart | safe }}</div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="tab-cost" role="tabpanel">
+        {{ cost_chart | safe }}
+      </div>
+      {% if heatmap_chart %}
+      <div class="tab-pane fade" id="tab-heatmap" role="tabpanel">
+        {{ heatmap_chart | safe }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<!-- Per-model details                                                 -->
+<!-- ================================================================ -->
+<div class="section-heading">Per-model Details</div>
+<div class="accordion d-flex flex-column gap-2" id="modelAccordion">
+  {% for d in per_model_details %}
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#model-{{ loop.index }}">
+        <strong>{{ d.name }}</strong>
+        <span class="badge-provider ms-2">{{ d.provider }}</span>
+        <span class="accordion-meta">
+          Halluc. rate: <strong>{{ d.halluc_rate }}</strong>
+          &nbsp;&middot;&nbsp;
+          F1: <strong>{{ d.f1 }}</strong>
+          &nbsp;&middot;&nbsp;
+          Avg latency: <strong>{{ d.avg_latency }}</strong>
+        </span>
+      </button>
+    </h2>
+    <div id="model-{{ loop.index }}" class="accordion-collapse collapse">
+      <div class="accordion-body">
+
+        {% if d.confusion_chart or d.error_chart %}
+        <div class="row g-3 mb-3">
+          {% if d.confusion_chart %}
+          <div class="col-md-6">{{ d.confusion_chart | safe }}</div>
+          {% endif %}
+          {% if d.error_chart %}
+          <div class="col-md-6">{{ d.error_chart | safe }}</div>
+          {% endif %}
+        </div>
+        {% else %}
+        <p class="text-muted small">
+          No per-sample breakdown available — all samples may have errors or a NEUTRAL NLI outcome.
+        </p>
+        {% endif %}
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <table class="table table-sm detail-table mb-0">
+              <tbody>
+                <tr><td>Total samples</td><td>{{ d.n_total }}</td></tr>
+                <tr><td>Evaluated (conclusive NLI)</td><td>{{ d.n_evaluated }}</td></tr>
+                <tr><td>Errors (API failures)</td><td>{{ d.n_errors }}</td></tr>
+                <tr><td>Neutral NLI (excluded)</td><td>{{ d.n_neutral }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="col-md-6">
+            <table class="table table-sm detail-table mb-0">
+              <tbody>
+                <tr><td>Total tokens</td><td>{{ d.total_tokens }}</td></tr>
+                <tr><td>Avg latency</td><td>{{ d.avg_latency }}</td></tr>
+                <tr><td>Median latency</td><td>{{ d.median_latency }}</td></tr>
+                <tr><td>p95 latency</td><td>{{ d.p95_latency }}</td></tr>
+                <tr><td>Total cost</td><td>{{ d.total_cost }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+</div><!-- /.main-content -->
+
+<footer>
+  Generated by <strong>llm-hallucination-eval</strong> &middot; {{ generated_at }}
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Trigger Plotly resize on tab switch so charts fill the container correctly -->
+<script>
+  document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(function(btn) {
+    btn.addEventListener('shown.bs.tab', function() {
+      window.dispatchEvent(new Event('resize'));
+    });
+  });
+</script>
+
+</body>
+</html>

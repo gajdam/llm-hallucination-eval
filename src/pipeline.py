@@ -83,6 +83,7 @@ class EvaluationPipeline:
             all_metrics,
             output_dir=eval_cfg.get("output_dir", "results"),
             save_responses=eval_cfg.get("save_responses", True),
+            config=self.config,
         )
 
         return all_metrics
