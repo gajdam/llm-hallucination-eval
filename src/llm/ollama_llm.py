@@ -7,7 +7,6 @@ Pull a model first:  ollama pull llama3.2
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 import requests
 
@@ -31,7 +30,7 @@ class OllamaLLM(BaseLLM):
     def provider(self) -> str:
         return "ollama"
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> LLMResponse:
+    def generate(self, prompt: str, system: str | None = None) -> LLMResponse:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -67,7 +66,9 @@ class OllamaLLM(BaseLLM):
             )
         except requests.ConnectionError:
             return LLMResponse(
-                text="", model=self._model, provider="ollama",
+                text="",
+                model=self._model,
+                provider="ollama",
                 error=(
                     f"Cannot connect to Ollama at {self._base_url}. "
                     "Make sure Ollama is running: https://ollama.com"
@@ -75,13 +76,11 @@ class OllamaLLM(BaseLLM):
             )
         except requests.HTTPError as e:
             return LLMResponse(
-                text="", model=self._model, provider="ollama",
-                error=f"HTTPError: {e}"
+                text="", model=self._model, provider="ollama", error=f"HTTPError: {e}"
             )
         except (json.JSONDecodeError, KeyError) as e:
             return LLMResponse(
-                text="", model=self._model, provider="ollama",
-                error=f"ParseError: {e}"
+                text="", model=self._model, provider="ollama", error=f"ParseError: {e}"
             )
 
     def is_available(self) -> bool:

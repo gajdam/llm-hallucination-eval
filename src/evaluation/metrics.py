@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,25 +27,27 @@ from sklearn.metrics import (
 console = Console()
 
 # Global plot style
-plt.rcParams.update({
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "axes.facecolor": "#F7F7F7",
-    "figure.facecolor": "white",
-})
+plt.rcParams.update(
+    {
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.facecolor": "#F7F7F7",
+        "figure.facecolor": "white",
+    }
+)
 
 # Token cost per 1k tokens in USD; None = local/free model
-TOKEN_COST_PER_1K: dict[str, dict[str, Optional[float]]] = {
-    "claude-opus-4-6":   {"input": 0.015,   "output": 0.075},
-    "claude-sonnet-4-6": {"input": 0.003,   "output": 0.015},
-    "claude-haiku-4-5":  {"input": 0.0008,  "output": 0.004},
-    "gpt-4o":            {"input": 0.005,   "output": 0.015},
-    "gpt-4o-mini":       {"input": 0.00015, "output": 0.0006},
-    "llama3.2":          {"input": None,    "output": None},
+TOKEN_COST_PER_1K: dict[str, dict[str, float | None]] = {
+    "claude-opus-4-6": {"input": 0.015, "output": 0.075},
+    "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+    "claude-haiku-4-5": {"input": 0.0008, "output": 0.004},
+    "gpt-4o": {"input": 0.005, "output": 0.015},
+    "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "llama3.2": {"input": None, "output": None},
 }
 
 
-def _parse_verdict(text: str) -> Optional[bool]:
+def _parse_verdict(text: str) -> bool | None:
     """Return True if response starts with TRUE:, False if FALSE:, None if unclear."""
     t = text.strip().upper()
     if t.startswith("TRUE"):
@@ -60,18 +61,19 @@ def _parse_verdict(text: str) -> Optional[bool]:
 # Per-sample result
 # ------------------------------------------------------------------
 
+
 @dataclass
 class SampleResult:
     sample_id: int
     claim: str
-    fever_label: str             # SUPPORTS | REFUTES
+    fever_label: str  # SUPPORTS | REFUTES
     llm_response: str
-    llm_error: Optional[str]
-    nli_label: str               # ENTAILMENT | NEUTRAL | CONTRADICTION
+    llm_error: str | None
+    nli_label: str  # ENTAILMENT | NEUTRAL | CONTRADICTION
     nli_entailment: float
     nli_neutral: float
     nli_contradiction: float
-    hallucination: Optional[bool]  # True | False | None (ambiguous)
+    hallucination: bool | None  # True | False | None (ambiguous)
     latency_s: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
@@ -81,12 +83,13 @@ class SampleResult:
 # Aggregated metrics for one LLM
 # ------------------------------------------------------------------
 
+
 @dataclass
 class LLMMetrics:
     model_name: str
     provider: str
     n_total: int = 0
-    n_evaluated: int = 0       # excludes API errors and NEUTRAL
+    n_evaluated: int = 0  # excludes API errors and NEUTRAL
     n_hallucinations: int = 0
     n_correct: int = 0
     n_neutral: int = 0
@@ -190,17 +193,16 @@ class LLMMetrics:
     # ------------------------------------------------------------------
 
     @property
-    def total_cost_usd(self) -> Optional[float]:
+    def total_cost_usd(self) -> float | None:
         rates = TOKEN_COST_PER_1K.get(self.model_name)
         if rates is None or rates["input"] is None or rates["output"] is None:
             return None
         return (
-            self.total_input_tokens * rates["input"]
-            + self.total_output_tokens * rates["output"]
+            self.total_input_tokens * rates["input"] + self.total_output_tokens * rates["output"]
         ) / 1000.0
 
     @property
-    def cost_per_sample_usd(self) -> Optional[float]:
+    def cost_per_sample_usd(self) -> float | None:
         cost = self.total_cost_usd
         if cost is None or self.n_total == 0:
             return None
@@ -232,9 +234,9 @@ class LLMMetrics:
                 continue
             # Ground truth: LLM's stated verdict vs FEVER label
             if r.fever_label == "SUPPORTS":
-                y_true.append(0 if verdict else 1)   # said FALSE on true claim = hallucination
+                y_true.append(0 if verdict else 1)  # said FALSE on true claim = hallucination
             elif r.fever_label == "REFUTES":
-                y_true.append(1 if verdict else 0)   # said TRUE on false claim = hallucination
+                y_true.append(1 if verdict else 0)  # said TRUE on false claim = hallucination
             else:
                 continue
             y_pred.append(1 if r.hallucination else 0)
@@ -366,7 +368,7 @@ class LLMMetrics:
     # ------------------------------------------------------------------
 
     def summary_dict(self) -> dict:
-        def _f(v: Optional[float], ndigits: int = 4) -> Optional[float]:
+        def _f(v: float | None, ndigits: int = 4) -> float | None:
             if v is None:
                 return None
             if isinstance(v, float) and math.isnan(v):
@@ -414,6 +416,7 @@ class LLMMetrics:
 # Report generation
 # ------------------------------------------------------------------
 
+
 def print_metrics_table(metrics_list: list[LLMMetrics]) -> None:
     def _pct(v: float) -> str:
         return "N/A" if math.isnan(v) else f"{v:.1%}"
@@ -421,7 +424,7 @@ def print_metrics_table(metrics_list: list[LLMMetrics]) -> None:
     def _flt(v: float, fmt: str = ".3f") -> str:
         return "N/A" if math.isnan(v) else format(v, fmt)
 
-    def _cost(v: Optional[float]) -> str:
+    def _cost(v: float | None) -> str:
         if v is None:
             return "free"
         if math.isnan(v):
@@ -514,27 +517,32 @@ def save_results(
 # Existing plots (updated with style + value labels)
 # ------------------------------------------------------------------
 
+
 def _plot_hallucination_rates(metrics_list: list[LLMMetrics], out: Path) -> None:
     models = [m.model_name for m in metrics_list]
-    overall  = [m.hallucination_rate          for m in metrics_list]
-    supports = [m.supports_hallucination_rate  for m in metrics_list]
-    refutes  = [m.refutes_hallucination_rate   for m in metrics_list]
+    overall = [m.hallucination_rate for m in metrics_list]
+    supports = [m.supports_hallucination_rate for m in metrics_list]
+    refutes = [m.refutes_hallucination_rate for m in metrics_list]
 
     x = np.arange(len(models))
     width = 0.25
 
     fig, ax = plt.subplots(figsize=(max(8, len(models) * 1.5), 5))
-    b1 = ax.bar(x - width, overall,  width, label="Overall",         color="steelblue")
-    b2 = ax.bar(x,         supports, width, label="SUPPORTS claims",  color="seagreen")
-    b3 = ax.bar(x + width, refutes,  width, label="REFUTES claims",   color="tomato")
+    b1 = ax.bar(x - width, overall, width, label="Overall", color="steelblue")
+    b2 = ax.bar(x, supports, width, label="SUPPORTS claims", color="seagreen")
+    b3 = ax.bar(x + width, refutes, width, label="REFUTES claims", color="tomato")
 
     for bars in [b1, b2, b3]:
         for bar in bars:
             h = bar.get_height()
             if not math.isnan(h):
                 ax.text(
-                    bar.get_x() + bar.get_width() / 2, h + 0.01,
-                    f"{h:.1%}", ha="center", va="bottom", fontsize=7,
+                    bar.get_x() + bar.get_width() / 2,
+                    h + 0.01,
+                    f"{h:.1%}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
                 )
 
     ax.set_ylabel("Hallucination Rate")
@@ -554,9 +562,9 @@ def _plot_hallucination_rates(metrics_list: list[LLMMetrics], out: Path) -> None
 
 
 def _plot_nli_distribution(metrics_list: list[LLMMetrics], out: Path) -> None:
-    models      = [m.model_name for m in metrics_list]
-    entailment  = [m.nli_entailment_count  / max(m.n_total, 1) for m in metrics_list]
-    neutral     = [m.nli_neutral_count     / max(m.n_total, 1) for m in metrics_list]
+    models = [m.model_name for m in metrics_list]
+    entailment = [m.nli_entailment_count / max(m.n_total, 1) for m in metrics_list]
+    neutral = [m.nli_neutral_count / max(m.n_total, 1) for m in metrics_list]
     contradiction = [m.nli_contradiction_count / max(m.n_total, 1) for m in metrics_list]
 
     df = pd.DataFrame(
@@ -568,10 +576,7 @@ def _plot_nli_distribution(metrics_list: list[LLMMetrics], out: Path) -> None:
     df.plot(kind="bar", ax=ax, color=["seagreen", "gold", "tomato"])
 
     for container in ax.containers:
-        labels = [
-            f"{v:.1%}" if not math.isnan(float(v)) else ""
-            for v in container.datavalues
-        ]
+        labels = [f"{v:.1%}" if not math.isnan(float(v)) else "" for v in container.datavalues]
         ax.bar_label(container, labels=labels, fontsize=7, padding=2)
 
     ax.set_ylabel("Fraction of Samples")
@@ -593,13 +598,14 @@ def _plot_nli_distribution(metrics_list: list[LLMMetrics], out: Path) -> None:
 # New plots
 # ------------------------------------------------------------------
 
+
 def _plot_statistical_metrics(metrics_list: list[LLMMetrics], out: Path) -> None:
     models = [m.model_name for m in metrics_list]
-    prec  = [m.precision_hallucination for m in metrics_list]
-    rec   = [m.recall_hallucination    for m in metrics_list]
-    f1    = [m.f1_hallucination        for m in metrics_list]
-    kappa = [m.cohen_kappa             for m in metrics_list]
-    mcc_v = [m.mcc                     for m in metrics_list]
+    prec = [m.precision_hallucination for m in metrics_list]
+    rec = [m.recall_hallucination for m in metrics_list]
+    f1 = [m.f1_hallucination for m in metrics_list]
+    kappa = [m.cohen_kappa for m in metrics_list]
+    mcc_v = [m.mcc for m in metrics_list]
 
     x = np.arange(len(models))
     w = 0.25
@@ -608,15 +614,19 @@ def _plot_statistical_metrics(metrics_list: list[LLMMetrics], out: Path) -> None
 
     # Left: Precision / Recall / F1
     b1 = ax1.bar(x - w, prec, w, label="Precision", color="#4C72B0")
-    b2 = ax1.bar(x,     rec,  w, label="Recall",    color="#55A868")
-    b3 = ax1.bar(x + w, f1,   w, label="F1",        color="#C44E52")
+    b2 = ax1.bar(x, rec, w, label="Recall", color="#55A868")
+    b3 = ax1.bar(x + w, f1, w, label="F1", color="#C44E52")
     for bars in [b1, b2, b3]:
         for bar in bars:
             h = bar.get_height()
             if not math.isnan(h):
                 ax1.text(
-                    bar.get_x() + bar.get_width() / 2, h + 0.01,
-                    f"{h:.2f}", ha="center", va="bottom", fontsize=7,
+                    bar.get_x() + bar.get_width() / 2,
+                    h + 0.01,
+                    f"{h:.2f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=7,
                 )
     ax1.set_ylabel("Score")
     ax1.set_title("Classification Metrics")
@@ -628,7 +638,7 @@ def _plot_statistical_metrics(metrics_list: list[LLMMetrics], out: Path) -> None
 
     # Right: Cohen's Kappa / MCC
     b4 = ax2.bar(x - w / 2, kappa, w, label="Cohen's Kappa", color="#8172B2")
-    b5 = ax2.bar(x + w / 2, mcc_v, w, label="MCC",           color="#CCB974")
+    b5 = ax2.bar(x + w / 2, mcc_v, w, label="MCC", color="#CCB974")
     for bars in [b4, b5]:
         for bar in bars:
             h = bar.get_height()
@@ -636,8 +646,12 @@ def _plot_statistical_metrics(metrics_list: list[LLMMetrics], out: Path) -> None
                 offset = 0.01 if h >= 0 else -0.03
                 va = "bottom" if h >= 0 else "top"
                 ax2.text(
-                    bar.get_x() + bar.get_width() / 2, h + offset,
-                    f"{h:.2f}", ha="center", va=va, fontsize=7,
+                    bar.get_x() + bar.get_width() / 2,
+                    h + offset,
+                    f"{h:.2f}",
+                    ha="center",
+                    va=va,
+                    fontsize=7,
                 )
     ax2.axhline(y=0, color="black", linewidth=0.8, linestyle="--", alpha=0.6)
     ax2.set_ylabel("Score")
@@ -660,13 +674,15 @@ def _plot_nli_score_distributions(metrics_list: list[LLMMetrics], out: Path) -> 
         for r in m.sample_results:
             if r.llm_error or r.hallucination is None:
                 continue
-            records.append({
-                "Model": m.model_name,
-                "P(entailment)": r.nli_entailment,
-                "P(neutral)": r.nli_neutral,
-                "P(contradiction)": r.nli_contradiction,
-                "Outcome": "Hallucination" if r.hallucination else "Correct",
-            })
+            records.append(
+                {
+                    "Model": m.model_name,
+                    "P(entailment)": r.nli_entailment,
+                    "P(neutral)": r.nli_neutral,
+                    "P(contradiction)": r.nli_contradiction,
+                    "Outcome": "Hallucination" if r.hallucination else "Correct",
+                }
+            )
 
     if not records:
         return
@@ -679,12 +695,15 @@ def _plot_nli_score_distributions(metrics_list: list[LLMMetrics], out: Path) -> 
     for ax, col in zip(axes, score_cols):
         try:
             sns.boxplot(
-                data=df, x="Model", y=col, hue="Outcome",
-                ax=ax, palette=palette,
+                data=df,
+                x="Model",
+                y=col,
+                hue="Outcome",
+                ax=ax,
+                palette=palette,
             )
         except Exception:
-            ax.text(0.5, 0.5, "insufficient data",
-                    transform=ax.transAxes, ha="center", va="center")
+            ax.text(0.5, 0.5, "insufficient data", transform=ax.transAxes, ha="center", va="center")
         ax.set_title(col)
         ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
         ax.set_ylim(0, 1)
@@ -713,16 +732,21 @@ def _plot_confusion_matrix(m: LLMMetrics, out: Path) -> None:
         for j in range(2):
             annot[i, j] = f"{cm_norm[i, j] * 100:.1f}%\n(n={cm[i, j]})"
 
-    kappa_s = "N/A" if math.isnan(m.cohen_kappa)        else f"{m.cohen_kappa:.3f}"
-    mcc_s   = "N/A" if math.isnan(m.mcc)                else f"{m.mcc:.3f}"
-    f1_s    = "N/A" if math.isnan(m.f1_hallucination)   else f"{m.f1_hallucination:.3f}"
+    kappa_s = "N/A" if math.isnan(m.cohen_kappa) else f"{m.cohen_kappa:.3f}"
+    mcc_s = "N/A" if math.isnan(m.mcc) else f"{m.mcc:.3f}"
+    f1_s = "N/A" if math.isnan(m.f1_hallucination) else f"{m.f1_hallucination:.3f}"
 
     fig, ax = plt.subplots(figsize=(6, 5))
     sns.heatmap(
-        cm_norm, annot=annot, fmt="", cmap="Blues",
+        cm_norm,
+        annot=annot,
+        fmt="",
+        cmap="Blues",
         xticklabels=["Correct", "Hallucination"],
         yticklabels=["Correct", "Hallucination"],
-        ax=ax, vmin=0, vmax=1,
+        ax=ax,
+        vmin=0,
+        vmax=1,
     )
     ax.set_xlabel("Predicted")
     ax.set_ylabel("True")
@@ -741,37 +765,49 @@ def _plot_summary_heatmap(metrics_list: list[LLMMetrics], out: Path) -> None:
         return
 
     cols = [
-        "Halluc.Rate", "Accuracy", "Precision", "Recall", "F1",
-        "Kappa", "MCC", "SUPPORTS Halluc.", "REFUTES Halluc.",
+        "Halluc.Rate",
+        "Accuracy",
+        "Precision",
+        "Recall",
+        "F1",
+        "Kappa",
+        "MCC",
+        "SUPPORTS Halluc.",
+        "REFUTES Halluc.",
     ]
     rows = []
     for m in metrics_list:
-        rows.append([
-            m.hallucination_rate,
-            m.accuracy,
-            m.precision_hallucination,
-            m.recall_hallucination,
-            m.f1_hallucination,
-            m.cohen_kappa,
-            m.mcc,
-            m.supports_hallucination_rate,
-            m.refutes_hallucination_rate,
-        ])
+        rows.append(
+            [
+                m.hallucination_rate,
+                m.accuracy,
+                m.precision_hallucination,
+                m.recall_hallucination,
+                m.f1_hallucination,
+                m.cohen_kappa,
+                m.mcc,
+                m.supports_hallucination_rate,
+                m.refutes_hallucination_rate,
+            ]
+        )
 
     models = [m.model_name for m in metrics_list]
     df = pd.DataFrame(rows, index=models, columns=cols)
-    df = df.applymap(
-        lambda v: np.nan if (isinstance(v, float) and math.isnan(v)) else v
-    )
+    df = df.applymap(lambda v: np.nan if (isinstance(v, float) and math.isnan(v)) else v)
     annot = df.applymap(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
 
-    fig, ax = plt.subplots(
-        figsize=(max(10, len(cols) * 1.2), max(4, len(models) * 0.8 + 2))
-    )
+    fig, ax = plt.subplots(figsize=(max(10, len(cols) * 1.2), max(4, len(models) * 0.8 + 2)))
     sns.heatmap(
-        df, annot=annot, fmt="", cmap="RdYlGn_r",
-        ax=ax, vmin=0, vmax=1, mask=df.isna(),
-        linewidths=0.5, linecolor="white",
+        df,
+        annot=annot,
+        fmt="",
+        cmap="RdYlGn_r",
+        ax=ax,
+        vmin=0,
+        vmax=1,
+        mask=df.isna(),
+        linewidths=0.5,
+        linecolor="white",
     )
     ax.set_title("Model Comparison Heatmap")
     ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
@@ -791,7 +827,9 @@ def _plot_latency_tokens(metrics_list: list[LLMMetrics], out: Path) -> None:
     # Left: per-sample latency box plot with mean diamond
     latency_data = [m._latency_list for m in metrics_list]
     bp = ax1.boxplot(
-        latency_data, labels=models, patch_artist=True,
+        latency_data,
+        labels=models,
+        patch_artist=True,
         medianprops={"color": "black", "linewidth": 1.5},
     )
     for patch in bp["boxes"]:
@@ -799,8 +837,15 @@ def _plot_latency_tokens(metrics_list: list[LLMMetrics], out: Path) -> None:
         patch.set_alpha(0.7)
     for i, lats in enumerate(latency_data):
         if lats:
-            ax1.plot(i + 1, float(np.mean(lats)), marker="D", color="red",
-                     markersize=6, zorder=5, label="mean" if i == 0 else "")
+            ax1.plot(
+                i + 1,
+                float(np.mean(lats)),
+                marker="D",
+                color="red",
+                markersize=6,
+                zorder=5,
+                label="mean" if i == 0 else "",
+            )
     ax1.set_ylabel("Latency (s)")
     ax1.set_title("Per-sample Latency Distribution")
     ax1.set_xticklabels(models, rotation=30, ha="right")
@@ -810,17 +855,18 @@ def _plot_latency_tokens(metrics_list: list[LLMMetrics], out: Path) -> None:
 
     # Right: stacked bar — avg input + output tokens per sample
     x = np.arange(len(models))
-    avg_in  = [m.total_input_tokens  / max(m.n_total, 1) for m in metrics_list]
+    avg_in = [m.total_input_tokens / max(m.n_total, 1) for m in metrics_list]
     avg_out = [m.total_output_tokens / max(m.n_total, 1) for m in metrics_list]
-    ax2.bar(x, avg_in,  label="Avg input tokens",  color="#4C72B0")
+    ax2.bar(x, avg_in, label="Avg input tokens", color="#4C72B0")
     ax2.bar(x, avg_out, bottom=avg_in, label="Avg output tokens", color="#C44E52")
     all_totals = [vi + vo for vi, vo in zip(avg_in, avg_out)]
     max_total = max(all_totals) if all_totals else 1.0
     for i, (vi, vo) in enumerate(zip(avg_in, avg_out)):
         total = vi + vo
         if not math.isnan(total):
-            ax2.text(i, total + max_total * 0.01,
-                     f"{total:.0f}", ha="center", va="bottom", fontsize=8)
+            ax2.text(
+                i, total + max_total * 0.01, f"{total:.0f}", ha="center", va="bottom", fontsize=8
+            )
     ax2.set_ylabel("Tokens")
     ax2.set_title("Avg Tokens per Sample")
     ax2.set_xticks(x)
@@ -862,7 +908,10 @@ def _plot_cost_efficiency(metrics_list: list[LLMMetrics], out: Path) -> None:
         ax1.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + max_cost * 0.02,
-            label, ha="center", va="bottom", fontsize=8,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=8,
         )
     ax1.set_ylabel("Cost (USD)")
     ax1.set_title("Cost per 1 000 Samples")
@@ -876,8 +925,9 @@ def _plot_cost_efficiency(metrics_list: list[LLMMetrics], out: Path) -> None:
             continue
         x_val = 0.0 if local else cost
         ax2.scatter(x_val, hr, marker="^" if local else "o", s=100, zorder=3)
-        ax2.annotate(m.model_name, (x_val, hr),
-                     textcoords="offset points", xytext=(5, 5), fontsize=7)
+        ax2.annotate(
+            m.model_name, (x_val, hr), textcoords="offset points", xytext=(5, 5), fontsize=7
+        )
     ax2.set_xlabel("Cost per 1 000 samples (USD)")
     ax2.set_ylabel("Hallucination Rate")
     ax2.set_title("Hallucination Rate vs Cost")
@@ -901,12 +951,12 @@ def _plot_error_categories(m: LLMMetrics, out: Path) -> None:
         "REFUTES→CONTRADICTION",
     ]
     color_map = {
-        "SUPPORTS→ENTAILMENT":    "#55A868",  # correct (green)
-        "SUPPORTS→NEUTRAL":       "#FFA500",  # ambiguous (amber)
+        "SUPPORTS→ENTAILMENT": "#55A868",  # correct (green)
+        "SUPPORTS→NEUTRAL": "#FFA500",  # ambiguous (amber)
         "SUPPORTS→CONTRADICTION": "#C44E52",  # hallucination (red)
-        "REFUTES→ENTAILMENT":     "#C44E52",  # hallucination (red)
-        "REFUTES→NEUTRAL":        "#FFA500",  # ambiguous (amber)
-        "REFUTES→CONTRADICTION":  "#55A868",  # correct (green)
+        "REFUTES→ENTAILMENT": "#C44E52",  # hallucination (red)
+        "REFUTES→NEUTRAL": "#FFA500",  # ambiguous (amber)
+        "REFUTES→CONTRADICTION": "#55A868",  # correct (green)
     }
 
     counts = m.error_category_counts()
@@ -919,19 +969,25 @@ def _plot_error_categories(m: LLMMetrics, out: Path) -> None:
     bars = ax.bar(x, values, color=colors)
     for bar, val in zip(bars, values):
         ax.text(
-            bar.get_x() + bar.get_width() / 2, val + max_val * 0.01,
-            str(val), ha="center", va="bottom", fontsize=9,
+            bar.get_x() + bar.get_width() / 2,
+            val + max_val * 0.01,
+            str(val),
+            ha="center",
+            va="bottom",
+            fontsize=9,
         )
 
     ax.set_ylabel("Count")
     ax.set_title(f"Error Category Breakdown — {m.model_name}")
     ax.set_xticks(x)
     ax.set_xticklabels(categories, rotation=30, ha="right")
-    ax.legend(handles=[
-        Patch(facecolor="#55A868", label="Correct"),
-        Patch(facecolor="#FFA500", label="Ambiguous"),
-        Patch(facecolor="#C44E52", label="Hallucination"),
-    ])
+    ax.legend(
+        handles=[
+            Patch(facecolor="#55A868", label="Correct"),
+            Patch(facecolor="#FFA500", label="Ambiguous"),
+            Patch(facecolor="#C44E52", label="Hallucination"),
+        ]
+    )
     ax.grid(axis="y", alpha=0.3)
 
     fig.tight_layout()

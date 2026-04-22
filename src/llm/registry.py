@@ -6,8 +6,8 @@ from rich.console import Console
 
 from .base import BaseLLM
 from .claude_llm import ClaudeLLM
-from .openai_llm import OpenAILLM
 from .ollama_llm import OllamaLLM
+from .openai_llm import OpenAILLM
 
 console = Console()
 
@@ -52,7 +52,9 @@ def build_llms(llm_configs: list[dict], llm_filter: str | None = None) -> list[B
                 llms.append(llm)
 
             else:
-                console.print(f"[yellow]Unknown provider '{provider}' for '{name}' — skipping[/yellow]")
+                console.print(
+                    f"[yellow]Unknown provider '{provider}' for '{name}' — skipping[/yellow]"
+                )
                 continue
 
             console.print(f"  [green]✓[/green] {provider}/{name}")

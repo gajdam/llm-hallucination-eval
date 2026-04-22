@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+markers = [
+    "anthropic: tests requiring ANTHROPIC_API_KEY",
+    "openai: tests requiring OPENAI_API_KEY",
+    "ollama: tests requiring a running Ollama instance",
+]

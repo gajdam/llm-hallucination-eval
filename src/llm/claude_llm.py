@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import anthropic
 
 from .base import BaseLLM, LLMResponse
@@ -25,7 +23,7 @@ class ClaudeLLM(BaseLLM):
     def provider(self) -> str:
         return "anthropic"
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> LLMResponse:
+    def generate(self, prompt: str, system: str | None = None) -> LLMResponse:
         kwargs: dict = {
             "model": self._model,
             "max_tokens": 512,
@@ -39,9 +37,7 @@ class ClaudeLLM(BaseLLM):
             with self._client.messages.stream(**kwargs) as stream:
                 response = stream.get_final_message()
 
-            text = next(
-                (b.text for b in response.content if b.type == "text"), ""
-            )
+            text = next((b.text for b in response.content if b.type == "text"), "")
             return LLMResponse(
                 text=text,
                 model=self._model,
@@ -53,11 +49,9 @@ class ClaudeLLM(BaseLLM):
             )
         except anthropic.RateLimitError as e:
             return LLMResponse(
-                text="", model=self._model, provider="anthropic",
-                error=f"RateLimitError: {e}"
+                text="", model=self._model, provider="anthropic", error=f"RateLimitError: {e}"
             )
         except anthropic.APIError as e:
             return LLMResponse(
-                text="", model=self._model, provider="anthropic",
-                error=f"APIError: {e}"
+                text="", model=self._model, provider="anthropic", error=f"APIError: {e}"
             )

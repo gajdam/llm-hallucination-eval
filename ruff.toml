@@ -1,0 +1,18 @@
+target-version = "py310"
+line-length = 100
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "B008",   # do not perform function calls in default args
+    "B905",   # zip() strict= is verbose for internal helpers
+    "E501",   # line length — handled per-project style
+    "SIM108", # ternary operator — sometimes less readable
+]
+
+[lint.per-file-ignores]
+"src/tests/*" = ["S101"]  # assert statements are fine in tests
+
+[format]
+quote-style = "double"
+indent-style = "space"

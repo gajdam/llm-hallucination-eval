@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from datasets import load_dataset
 from rich.console import Console
@@ -25,8 +24,8 @@ class FeverSample:
 
 def load_fever_samples(
     split: str = "labelled_dev",
-    max_samples: Optional[int] = None,
-    labels: Optional[list[str]] = None,
+    max_samples: int | None = None,
+    labels: list[str] | None = None,
     seed: int = 42,
     min_words: int = 0,
     filter_vague_predicates: bool = False,
