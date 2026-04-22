@@ -1,13 +1,16 @@
 """NLI scorer — wraps a HuggingFace NLI model.
 
 The NLI model decides the relationship between a premise and a hypothesis:
-  ENTAILMENT   – hypothesis logically follows from the premise
-  NEUTRAL      – hypothesis is unrelated / cannot be determined
+  ENTAILMENT    – hypothesis logically follows from the premise
+  NEUTRAL       – hypothesis is unrelated / cannot be determined
   CONTRADICTION – hypothesis contradicts the premise
 
-We use this to detect hallucinations:
-  FEVER=SUPPORTS  + NLI(claim, llm_response)=CONTRADICTION  → hallucination
-  FEVER=REFUTES   + NLI(claim, llm_response)=ENTAILMENT     → hallucination
+We use premise=llm_response, hypothesis=claim.
+This asks: "Does what the LLM said imply the original claim?"
+
+Hallucination detection:
+  FEVER=SUPPORTS + NLI(llm_response, claim)=CONTRADICTION → hallucination
+  FEVER=REFUTES  + NLI(llm_response, claim)=ENTAILMENT    → hallucination
 """
 
 from __future__ import annotations
