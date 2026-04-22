@@ -5,20 +5,21 @@ A framework for measuring hallucination rates across LLM providers using the [FE
 ## How it works
 
 1. **Load claims** from FEVER — each claim is labelled `SUPPORTS` or `REFUTES` by human annotators.
-2. **Query each LLM** and ask it to provide factual information about the claim.
-3. **Score with NLI** — a cross-encoder model compares the LLM response against the original claim and returns `ENTAILMENT`, `NEUTRAL`, or `CONTRADICTION`.
-4. **Classify hallucination**:
-   - `SUPPORTS` claim + LLM response contradicts it → hallucination
-   - `REFUTES` claim + LLM response entails it → hallucination
+2. **Filter claims** (optional) — drop very short or vague claims before sampling.
+3. **Query each LLM** with a binary classification prompt: *"Is this statement TRUE or FALSE?"*
+4. **Score with NLI** — a cross-encoder model checks whether the LLM response entails or contradicts the original claim and returns `ENTAILMENT`, `NEUTRAL`, or `CONTRADICTION`.
+5. **Classify hallucination**:
+   - `SUPPORTS` claim + NLI contradiction → hallucination
+   - `REFUTES` claim + NLI entailment → hallucination
    - `NEUTRAL` NLI outcome → ambiguous, excluded from rate calculation
-5. **Report** — per-model metrics, visualisations, and per-sample detail files.
+6. **Report** — per-model metrics, classification statistics, cost analysis, and visualisations.
 
 ```
-FEVER claim ──► LLM (Claude / GPT / Ollama) ──► response
-                                                     │
-                                    NLI cross-encoder judge
-                                                     │
-                              hallucination? (True / False / None)
+FEVER claim ──► filter ──► LLM (Claude / GPT / Ollama) ──► TRUE:/FALSE: response
+                                                                     │
+                                          NLI: does response imply claim?
+                                                                     │
+                                    hallucination? (True / False / None)
 ```
 
 ## Supported models
@@ -111,6 +112,22 @@ nli:
   batch_size: 16
   device: "auto"   # auto-selects CUDA > MPS > CPU
 
+# Claim quality filters — applied before the max_samples cap
+filtering:
+  enabled: true
+  min_words: 8                   # drop claims shorter than N words
+  filter_vague_predicates: true  # drop "[X] is/are a [word]." patterns
+
+prompts:
+  system: >
+    You are a fact-checking assistant. Your task is to verify whether
+    statements are true or false based on your knowledge.
+  user_template: >
+    Is the following statement TRUE or FALSE?
+    Start your response with "TRUE:" or "FALSE:", then give a one-sentence explanation.
+
+    Statement: {claim}
+
 evaluation:
   output_dir: "results"
   save_responses: true
@@ -125,14 +142,24 @@ Results are saved to `results/` (or `--output` path) after each run:
 
 ```
 results/
-├── summary.csv                    # one row per model, all metrics
+├── summary.csv                         # one row per model, all metrics
 ├── claude-sonnet-4-6_samples.jsonl
 ├── gpt-4o-mini_samples.jsonl
-├── hallucination_rates.png        # grouped bar chart
-└── nli_distribution.png           # stacked NLI label chart
+│
+├── hallucination_rates.png             # grouped bar chart (overall/SUPPORTS/REFUTES)
+├── nli_distribution.png                # NLI label distribution per model
+├── statistical_metrics.png             # precision / recall / F1 / Kappa / MCC
+├── nli_score_distributions.png         # NLI confidence box plots by outcome
+├── summary_heatmap.png                 # all metrics in one heatmap
+├── latency_tokens.png                  # latency box plots + avg token usage
+├── cost_efficiency.png                 # cost per 1k samples + halluc. rate vs cost
+├── confusion_matrix_<model>.png        # per-model confusion matrix
+└── error_categories_<model>.png        # per-model FEVER×NLI breakdown
 ```
 
 ### summary.csv columns
+
+**Core metrics**
 
 | Column | Description |
 |--------|-------------|
@@ -149,6 +176,34 @@ results/
 | `nli_neutral_pct` | Fraction of samples scored NEUTRAL |
 | `nli_contradiction_pct` | Fraction of samples scored CONTRADICTION |
 
+**Classification metrics** *(NLI prediction vs. LLM's explicit TRUE/FALSE verdict)*
+
+| Column | Description |
+|--------|-------------|
+| `precision_hallucination` | Precision of NLI-based detection |
+| `recall_hallucination` | Recall of NLI-based detection |
+| `f1_hallucination` | F1 score |
+| `cohen_kappa` | Cohen's κ — agreement between NLI judge and LLM verdict |
+| `mcc` | Matthews Correlation Coefficient |
+
+**Latency**
+
+| Column | Description |
+|--------|-------------|
+| `avg_latency_s` | Mean response time per sample (seconds) |
+| `median_latency_s` | Median response time |
+| `p95_latency_s` | 95th-percentile response time |
+
+**Tokens & cost**
+
+| Column | Description |
+|--------|-------------|
+| `total_input_tokens` | Total prompt tokens consumed |
+| `total_output_tokens` | Total completion tokens generated |
+| `avg_tokens_per_sample` | Average total tokens per call |
+| `total_cost_usd` | Estimated total cost (USD); `null` for local models |
+| `cost_per_sample_usd` | Estimated cost per sample; `null` for local models |
+
 ### Per-sample JSONL
 
 Each `{model}_samples.jsonl` line contains:
@@ -158,13 +213,16 @@ Each `{model}_samples.jsonl` line contains:
   "sample_id": 42,
   "claim": "Marie Curie was born in Poland.",
   "fever_label": "SUPPORTS",
-  "llm_response": "Marie Curie, born Maria Sklodowska in Warsaw...",
+  "llm_response": "TRUE: Marie Curie was indeed born in Warsaw, Poland.",
   "llm_error": null,
   "nli_label": "ENTAILMENT",
   "nli_entailment": 0.97,
   "nli_neutral": 0.02,
   "nli_contradiction": 0.01,
-  "hallucination": false
+  "hallucination": false,
+  "latency_s": 0.84,
+  "input_tokens": 112,
+  "output_tokens": 23
 }
 ```
 
@@ -215,7 +273,7 @@ llm-hallucination-eval/
     │   ├── openai_llm.py      # OpenAI GPT
     │   └── ollama_llm.py      # local Ollama
     ├── data/
-    │   └── fever_loader.py    # FEVER dataset loading, dedup, balancing
+    │   └── fever_loader.py    # FEVER dataset loading, dedup, filtering, balancing
     ├── nli/
     │   └── nli_scorer.py      # HuggingFace NLI wrapper with batch scoring
     ├── evaluation/
