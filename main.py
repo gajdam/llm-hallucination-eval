@@ -23,24 +23,15 @@ def main() -> None:
         description="Evaluate LLM hallucination rates on the FEVER dataset."
     )
     parser.add_argument(
-        "--config", default="config.yaml",
-        help="Path to YAML config file (default: config.yaml)"
+        "--config", default="config.yaml", help="Path to YAML config file (default: config.yaml)"
     )
     parser.add_argument(
-        "--llm",
-        help="Evaluate only this model (must match a 'name' in config llms list)"
+        "--llm", help="Evaluate only this model (must match a 'name' in config llms list)"
     )
+    parser.add_argument("--samples", type=int, help="Override max_samples from config")
+    parser.add_argument("--output", help="Override output directory from config")
     parser.add_argument(
-        "--samples", type=int,
-        help="Override max_samples from config"
-    )
-    parser.add_argument(
-        "--output",
-        help="Override output directory from config"
-    )
-    parser.add_argument(
-        "--split", default=None,
-        help="FEVER split to use (e.g. labelled_dev, paper_test)"
+        "--split", default=None, help="FEVER split to use (e.g. labelled_dev, paper_test)"
     )
     args = parser.parse_args()
 
@@ -62,6 +53,7 @@ def main() -> None:
 
     # Run
     from src.pipeline import EvaluationPipeline
+
     pipeline = EvaluationPipeline(config)
     pipeline.run(llm_filter=args.llm)
 

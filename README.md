@@ -1,5 +1,7 @@
 # llm-hallucination-eval
 
+[![CI](https://github.com/gajdam/llm-hallucination-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/gajdam/llm-hallucination-eval/actions/workflows/ci.yml)
+
 A framework for measuring hallucination rates across LLM providers using the [FEVER](https://fever.ai/) fact-verification dataset and a Natural Language Inference (NLI) model as an automated judge.
 
 ## How it works

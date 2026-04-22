@@ -11,11 +11,10 @@ Flow per LLM:
 from __future__ import annotations
 
 import time
-from typing import Optional
 
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 from dotenv import load_dotenv
+from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .data.fever_loader import FeverSample, load_fever_samples
 from .evaluation.metrics import LLMMetrics, SampleResult, print_metrics_table, save_results
@@ -35,7 +34,7 @@ class EvaluationPipeline:
     # Entry point
     # ------------------------------------------------------------------
 
-    def run(self, llm_filter: Optional[str] = None) -> list[LLMMetrics]:
+    def run(self, llm_filter: str | None = None) -> list[LLMMetrics]:
         cfg = self.config
 
         # 1. Load FEVER samples
@@ -47,7 +46,8 @@ class EvaluationPipeline:
             labels=cfg["fever"]["labels"],
             seed=cfg["fever"].get("seed", 42),
             min_words=filter_cfg.get("min_words", 0) if filtering_on else 0,
-            filter_vague_predicates=filter_cfg.get("filter_vague_predicates", False) and filtering_on,
+            filter_vague_predicates=filter_cfg.get("filter_vague_predicates", False)
+            and filtering_on,
         )
 
         # 2. Build LLM instances
@@ -98,7 +98,7 @@ class EvaluationPipeline:
         nli_scorer: NLIScorer,
     ) -> LLMMetrics:
         prompts_cfg = self.config.get("prompts", {})
-        system_prompt: Optional[str] = prompts_cfg.get("system")
+        system_prompt: str | None = prompts_cfg.get("system")
         user_template: str = prompts_cfg.get(
             "user_template",
             "Please provide accurate factual information about the following statement. "
@@ -109,7 +109,7 @@ class EvaluationPipeline:
         metrics = LLMMetrics(model_name=llm.name, provider=llm.provider)
 
         # --- Step A: generate LLM responses ---
-        responses: list[tuple[FeverSample, str, Optional[str], float, dict]] = []
+        responses: list[tuple[FeverSample, str, str | None, float, dict]] = []
         with Progress(
             SpinnerColumn(),
             TextColumn("[bold]{task.description}"),
@@ -132,7 +132,7 @@ class EvaluationPipeline:
         # --- Step B: run NLI in batch ---
         # premise=llm_response, hypothesis=claim: asks "does the response imply the claim?"
         valid_pairs: list[tuple[int, str, str]] = []  # (index, premise, hypothesis)
-        for i, (sample, text, error, latency, usage) in enumerate(responses):
+        for i, (sample, text, error, _latency, _usage) in enumerate(responses):
             if not error and text.strip():
                 valid_pairs.append((i, text, sample.claim))
 

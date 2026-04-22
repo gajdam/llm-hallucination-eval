@@ -23,15 +23,14 @@ PING_PROMPT = "Reply with exactly one word: Hello"
 # Pomocnicze asercje
 # -----------------------------------------------------------------------
 
+
 def assert_valid_response(response, expected_provider: str) -> None:
     """Sprawdza, że odpowiedź LLM jest poprawna."""
     assert response is not None, "Brak odpowiedzi (None)"
     assert response.provider == expected_provider, (
         f"Oczekiwano provider='{expected_provider}', dostałem '{response.provider}'"
     )
-    assert not response.failed, (
-        f"LLM zwrócił błąd: {response.error}"
-    )
+    assert not response.failed, f"LLM zwrócił błąd: {response.error}"
     assert isinstance(response.text, str), "Odpowiedź nie jest stringiem"
     assert len(response.text.strip()) > 0, "Odpowiedź jest pusta"
 
@@ -40,9 +39,9 @@ def assert_valid_response(response, expected_provider: str) -> None:
 # Claude (Anthropic)
 # -----------------------------------------------------------------------
 
+
 @pytest.mark.anthropic
 class TestClaude:
-
     @pytest.fixture(autouse=True)
     def require_api_key(self):
         if not os.getenv("ANTHROPIC_API_KEY"):
@@ -50,13 +49,17 @@ class TestClaude:
 
     def _make_llm(self, model: str):
         from src.llm.claude_llm import ClaudeLLM
+
         return ClaudeLLM(model=model)
 
-    @pytest.mark.parametrize("model", [
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-haiku-4-5",
+        ],
+    )
     def test_connection(self, model: str):
         """Każdy model Claude powinien zwrócić niepustą odpowiedź."""
         llm = self._make_llm(model)
@@ -90,9 +93,9 @@ class TestClaude:
 # OpenAI GPT
 # -----------------------------------------------------------------------
 
+
 @pytest.mark.openai
 class TestOpenAI:
-
     @pytest.fixture(autouse=True)
     def require_api_key(self):
         if not os.getenv("OPENAI_API_KEY"):
@@ -100,12 +103,16 @@ class TestOpenAI:
 
     def _make_llm(self, model: str):
         from src.llm.openai_llm import OpenAILLM
+
         return OpenAILLM(model=model)
 
-    @pytest.mark.parametrize("model", [
-        "gpt-4o",
-        "gpt-4o-mini",
-    ])
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-4o",
+            "gpt-4o-mini",
+        ],
+    )
     def test_connection(self, model: str):
         """Każdy model GPT powinien zwrócić niepustą odpowiedź."""
         llm = self._make_llm(model)
@@ -138,37 +145,38 @@ class TestOpenAI:
 # Ollama (lokalne modele)
 # -----------------------------------------------------------------------
 
+
 @pytest.mark.ollama
 class TestOllama:
-
     BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
     @pytest.fixture(autouse=True)
     def require_ollama(self):
         """Pomiń, jeśli Ollama nie działa lokalnie."""
         import requests
+
         try:
             r = requests.get(f"{self.BASE_URL}/api/tags", timeout=3)
             r.raise_for_status()
         except Exception:
-            pytest.skip(
-                f"Ollama niedostępna pod {self.BASE_URL} — "
-                "uruchom: https://ollama.com"
-            )
+            pytest.skip(f"Ollama niedostępna pod {self.BASE_URL} — uruchom: https://ollama.com")
 
     def _make_llm(self, model: str):
         from src.llm.ollama_llm import OllamaLLM
+
         return OllamaLLM(model=model, base_url=self.BASE_URL)
 
     def _available_models(self) -> list[str]:
         """Pobiera listę zaciągniętych modeli z Ollama."""
         import requests
+
         r = requests.get(f"{self.BASE_URL}/api/tags", timeout=5)
         return [m["name"] for m in r.json().get("models", [])]
 
     def test_ollama_is_running(self):
         """Ollama musi odpowiadać na /api/tags."""
         import requests
+
         r = requests.get(f"{self.BASE_URL}/api/tags", timeout=5)
         assert r.status_code == 200
         data = r.json()

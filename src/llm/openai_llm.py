@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-from typing import Optional
-
 from .base import BaseLLM, LLMResponse
 
 
@@ -14,11 +11,10 @@ class OpenAILLM(BaseLLM):
         # Import lazily so the package doesn't hard-fail if openai is missing
         try:
             from openai import OpenAI
+
             self._client = OpenAI()
         except ImportError as e:
-            raise ImportError(
-                "OpenAI package not installed. Run: pip install openai"
-            ) from e
+            raise ImportError("OpenAI package not installed. Run: pip install openai") from e
 
     @property
     def name(self) -> str:
@@ -28,8 +24,8 @@ class OpenAILLM(BaseLLM):
     def provider(self) -> str:
         return "openai"
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> LLMResponse:
-        from openai import RateLimitError, APIError
+    def generate(self, prompt: str, system: str | None = None) -> LLMResponse:
+        from openai import APIError, RateLimitError
 
         messages = []
         if system:
@@ -57,11 +53,9 @@ class OpenAILLM(BaseLLM):
             )
         except RateLimitError as e:
             return LLMResponse(
-                text="", model=self._model, provider="openai",
-                error=f"RateLimitError: {e}"
+                text="", model=self._model, provider="openai", error=f"RateLimitError: {e}"
             )
         except APIError as e:
             return LLMResponse(
-                text="", model=self._model, provider="openai",
-                error=f"APIError: {e}"
+                text="", model=self._model, provider="openai", error=f"APIError: {e}"
             )

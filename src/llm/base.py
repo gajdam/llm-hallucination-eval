@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -13,7 +12,7 @@ class LLMResponse:
     model: str
     provider: str
     usage: dict = field(default_factory=dict)
-    error: Optional[str] = None
+    error: str | None = None
     latency_s: float = 0.0
 
     @property
@@ -39,5 +38,5 @@ class BaseLLM(ABC):
         """Provider name (e.g. 'anthropic')."""
 
     @abstractmethod
-    def generate(self, prompt: str, system: Optional[str] = None) -> LLMResponse:
+    def generate(self, prompt: str, system: str | None = None) -> LLMResponse:
         """Generate a response for the given prompt."""

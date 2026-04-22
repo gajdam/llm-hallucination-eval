@@ -16,7 +16,6 @@ Hallucination detection:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -33,7 +32,7 @@ CONTRADICTION = "CONTRADICTION"
 
 @dataclass
 class NLIResult:
-    label: str               # ENTAILMENT | NEUTRAL | CONTRADICTION
+    label: str  # ENTAILMENT | NEUTRAL | CONTRADICTION
     entailment: float
     neutral: float
     contradiction: float
@@ -72,19 +71,16 @@ class NLIScorer:
         self._batch_size = batch_size
         self._device = _resolve_device(device)
 
-        console.print(
-            f"[bold]Loading NLI model[/bold]: {model_name} → device={self._device}"
-        )
+        console.print(f"[bold]Loading NLI model[/bold]: {model_name} → device={self._device}")
         self._tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self._model = AutoModelForSequenceClassification.from_pretrained(
-            model_name
-        ).to(self._device)
+        self._model = AutoModelForSequenceClassification.from_pretrained(model_name).to(
+            self._device
+        )
         self._model.eval()
 
         # Build a normalised label → column-index mapping
         id2label: dict[int, str] = {
-            int(k): v.upper()
-            for k, v in self._model.config.id2label.items()
+            int(k): v.upper() for k, v in self._model.config.id2label.items()
         }
         # Normalise aliases: "ENTAILS" → "ENTAILMENT", "CONTRADICT" → "CONTRADICTION"
         _aliases = {
@@ -104,8 +100,7 @@ class NLIScorer:
         missing = {ENTAILMENT, NEUTRAL, CONTRADICTION} - set(self._idx.keys())
         if missing:
             raise ValueError(
-                f"NLI model '{model_name}' is missing labels: {missing}. "
-                f"Available: {id2label}"
+                f"NLI model '{model_name}' is missing labels: {missing}. Available: {id2label}"
             )
         console.print(f"  Label mapping: {self._idx}")
 
@@ -156,10 +151,11 @@ class NLIScorer:
 # Hallucination detection logic
 # ------------------------------------------------------------------
 
+
 def is_hallucination(
     fever_label: str,
     nli_result: NLIResult,
-) -> Optional[bool]:
+) -> bool | None:
     """Map a FEVER label + NLI result to a hallucination judgment.
 
     Returns:
