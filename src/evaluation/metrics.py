@@ -75,6 +75,7 @@ class SampleResult:
     latency_s: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    track: str = "blind"         # blind | kg | hybrid
 
 
 # ------------------------------------------------------------------
@@ -85,6 +86,7 @@ class SampleResult:
 class LLMMetrics:
     model_name: str
     provider: str
+    track: str = "blind"         # blind | kg | hybrid
     n_total: int = 0
     n_evaluated: int = 0       # excludes API errors and NEUTRAL
     n_hallucinations: int = 0
@@ -376,6 +378,7 @@ class LLMMetrics:
         return {
             "model": self.model_name,
             "provider": self.provider,
+            "track": self.track,
             "n_total": self.n_total,
             "n_evaluated": self.n_evaluated,
             "n_errors": self.n_errors,
@@ -431,6 +434,7 @@ def print_metrics_table(metrics_list: list[LLMMetrics]) -> None:
     table = Table(title="Hallucination Evaluation Results", show_lines=True)
     table.add_column("Model", style="bold")
     table.add_column("Provider")
+    table.add_column("Track")
     table.add_column("Samples", justify="right")
     table.add_column("Errors", justify="right")
     table.add_column("Hallucination Rate", justify="right", style="red")
@@ -452,6 +456,7 @@ def print_metrics_table(metrics_list: list[LLMMetrics]) -> None:
         table.add_row(
             m.model_name,
             m.provider,
+            m.track,
             str(m.n_total),
             str(m.n_errors),
             _pct(m.hallucination_rate),
@@ -475,6 +480,7 @@ def save_results(
     metrics_list: list[LLMMetrics],
     output_dir: str,
     save_responses: bool = True,
+    config: Optional[dict] = None,
 ) -> None:
     """Save metrics and (optionally) raw sample results to disk."""
     out = Path(output_dir)
@@ -491,7 +497,7 @@ def save_results(
     if save_responses:
         for m in metrics_list:
             safe_name = m.model_name.replace("/", "_").replace(":", "_")
-            detail_path = out / f"{safe_name}_samples.jsonl"
+            detail_path = out / f"{safe_name}_{m.track}_samples.jsonl"
             with open(detail_path, "w", encoding="utf-8") as f:
                 for r in m.sample_results:
                     f.write(json.dumps(asdict(r), ensure_ascii=False) + "\n")
@@ -508,6 +514,15 @@ def save_results(
     for m in metrics_list:
         _plot_confusion_matrix(m, out)
         _plot_error_categories(m, out)
+
+    # Interactive HTML report
+    try:
+        from src.reporting.html_report import generate_html_report
+        report_path = generate_html_report(metrics_list, output_dir, config=config)
+        if report_path:
+            console.print(f"Saved report  → [cyan]{report_path}[/cyan]")
+    except Exception as exc:
+        console.print(f"[yellow]HTML report skipped: {exc}[/yellow]")
 
 
 # ------------------------------------------------------------------
@@ -760,10 +775,10 @@ def _plot_summary_heatmap(metrics_list: list[LLMMetrics], out: Path) -> None:
 
     models = [m.model_name for m in metrics_list]
     df = pd.DataFrame(rows, index=models, columns=cols)
-    df = df.applymap(
+    df = df.map(
         lambda v: np.nan if (isinstance(v, float) and math.isnan(v)) else v
     )
-    annot = df.applymap(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
+    annot = df.map(lambda v: f"{v:.2f}" if pd.notna(v) else "N/A")
 
     fig, ax = plt.subplots(
         figsize=(max(10, len(cols) * 1.2), max(4, len(models) * 0.8 + 2))
