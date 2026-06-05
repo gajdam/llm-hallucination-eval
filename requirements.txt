@@ -31,3 +31,6 @@ seaborn>=0.13.0
 # HTML report
 plotly>=5.18.0
 Jinja2>=3.1.0
+
+# KG / IR retrieval
+spacy>=3.7.0

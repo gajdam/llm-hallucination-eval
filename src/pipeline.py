@@ -1,11 +1,17 @@
 """Main evaluation pipeline.
 
-Flow per LLM:
+Flow:
   1. Load FEVER samples.
-  2. For each sample, ask the LLM to comment on the claim.
-  3. Run NLI(claim, llm_response) to measure semantic alignment.
-  4. Classify each response as hallucination / correct / ambiguous.
-  5. Aggregate metrics and save results.
+  2. Build LLM instances.
+  3. Load NLI model.
+  4. Pre-fetch KG/IR contexts for all samples (if kg.enabled in config).
+  5. For each LLM × track: ask the LLM, run NLI, aggregate metrics.
+  6. Save results.
+
+Tracks:
+  blind   — LLM receives only the claim (baseline).
+  kg      — LLM receives claim + Wikidata entity descriptions.
+  hybrid  — LLM receives claim + Wikidata descriptions + Wikipedia summaries.
 """
 
 from __future__ import annotations
@@ -25,6 +31,15 @@ from .nli.nli_scorer import NLIScorer, is_hallucination
 
 load_dotenv()
 console = Console()
+
+# Prompt used when the LLM is given background context (kg / hybrid tracks)
+_GROUNDED_USER_TEMPLATE = (
+    "Use the following background information to verify the statement.\n\n"
+    "Background:\n{context}\n\n"
+    "Is the following statement TRUE or FALSE? "
+    'Start your response with "TRUE:" or "FALSE:", then give a one-sentence explanation.\n\n'
+    "Statement: {claim}"
+)
 
 
 class EvaluationPipeline:
@@ -57,7 +72,7 @@ class EvaluationPipeline:
             console.print("[red]No LLMs available. Check your config and API keys.[/red]")
             return []
 
-        # 3. Load NLI model (once, shared across all LLMs)
+        # 3. Load NLI model (once, shared across all LLMs and tracks)
         console.print("\n[bold]Loading NLI model...[/bold]")
         nli_cfg = cfg.get("nli", {})
         nli_scorer = NLIScorer(
@@ -67,14 +82,28 @@ class EvaluationPipeline:
             batch_size=nli_cfg.get("batch_size", 16),
         )
 
-        # 4. Evaluate each LLM
+        # 4. Pre-fetch KG/IR contexts (once for all LLMs)
+        kg_cfg = cfg.get("kg", {})
+        tracks: list[str] = ["blind"]
+        contexts: dict[int, dict[str, str]] = {}
+
+        if kg_cfg.get("enabled", False):
+            tracks = kg_cfg.get("tracks", ["blind", "kg", "hybrid"])
+            if any(t != "blind" for t in tracks):
+                contexts = self._prefetch_contexts(samples, kg_cfg)
+
+        # 5. Evaluate each LLM × each track
         all_metrics: list[LLMMetrics] = []
         for llm in llms:
-            console.print(f"\n[bold cyan]Evaluating: {llm.provider}/{llm.name}[/bold cyan]")
-            metrics = self._evaluate_llm(llm, samples, nli_scorer)
-            all_metrics.append(metrics)
+            for track in tracks:
+                console.print(
+                    f"\n[bold cyan]Evaluating: {llm.provider}/{llm.name}  "
+                    f"[yellow]track={track}[/yellow][/bold cyan]"
+                )
+                metrics = self._evaluate_llm(llm, samples, nli_scorer, track, contexts)
+                all_metrics.append(metrics)
 
-        # 5. Print comparison table and save
+        # 6. Print comparison table and save
         console.print("\n")
         print_metrics_table(all_metrics)
 
@@ -89,7 +118,50 @@ class EvaluationPipeline:
         return all_metrics
 
     # ------------------------------------------------------------------
-    # Per-LLM evaluation
+    # Context pre-fetching
+    # ------------------------------------------------------------------
+
+    def _prefetch_contexts(
+        self,
+        samples: list[FeverSample],
+        kg_cfg: dict,
+    ) -> dict[int, dict[str, str]]:
+        """Fetch Wikidata/Wikipedia contexts for all samples (with entity cache)."""
+        from .kg.kg_retriever import KGRetriever
+
+        retriever = KGRetriever(
+            max_entities=kg_cfg.get("max_entities", 3),
+            wikidata_timeout=kg_cfg.get("wikidata_timeout", 5),
+            wikipedia_timeout=kg_cfg.get("wikipedia_timeout", 5),
+        )
+
+        console.print("\n[bold]Fetching KG/IR contexts...[/bold]")
+        contexts: dict[int, dict[str, str]] = {}
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Fetching contexts", total=len(samples))
+            for sample in samples:
+                kg = retriever.get_kg_context(sample.claim)
+                ir = retriever.get_ir_context(sample.claim)
+                hybrid = retriever.get_hybrid_context(kg, ir)
+                contexts[sample.id] = {"blind": "", "kg": kg, "hybrid": hybrid}
+                progress.advance(task)
+
+        covered = sum(1 for c in contexts.values() if c["kg"].strip())
+        console.print(
+            f"  KG coverage: [green]{covered}/{len(samples)}[/green] claims have context"
+        )
+        return contexts
+
+    # ------------------------------------------------------------------
+    # Per-LLM × track evaluation
     # ------------------------------------------------------------------
 
     def _evaluate_llm(
@@ -97,17 +169,19 @@ class EvaluationPipeline:
         llm: BaseLLM,
         samples: list[FeverSample],
         nli_scorer: NLIScorer,
+        track: str = "blind",
+        contexts: Optional[dict[int, dict[str, str]]] = None,
     ) -> LLMMetrics:
         prompts_cfg = self.config.get("prompts", {})
         system_prompt: Optional[str] = prompts_cfg.get("system")
-        user_template: str = prompts_cfg.get(
+        blind_user_template: str = prompts_cfg.get(
             "user_template",
             "Please provide accurate factual information about the following statement. "
             "Be specific and concise (2-4 sentences).\n\nStatement: {claim}",
         )
         request_delay = self.config.get("evaluation", {}).get("request_delay", 0.5)
 
-        metrics = LLMMetrics(model_name=llm.name, provider=llm.provider)
+        metrics = LLMMetrics(model_name=llm.name, provider=llm.provider, track=track)
 
         # --- Step A: generate LLM responses ---
         responses: list[tuple[FeverSample, str, Optional[str], float, dict]] = []
@@ -119,9 +193,10 @@ class EvaluationPipeline:
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task("Generating responses", total=len(samples))
+            task = progress.add_task(f"[{track}] Generating responses", total=len(samples))
             for sample in samples:
-                prompt = user_template.format(claim=sample.claim)
+                context = (contexts or {}).get(sample.id, {}).get(track, "")
+                prompt = self._build_prompt(sample.claim, track, context, blind_user_template)
                 t0 = time.perf_counter()
                 response = llm.generate(prompt, system=system_prompt)
                 latency = time.perf_counter() - t0
@@ -131,8 +206,7 @@ class EvaluationPipeline:
                     time.sleep(request_delay)
 
         # --- Step B: run NLI in batch ---
-        # premise=llm_response, hypothesis=claim: asks "does the response imply the claim?"
-        valid_pairs: list[tuple[int, str, str]] = []  # (index, premise, hypothesis)
+        valid_pairs: list[tuple[int, str, str]] = []
         for i, (sample, text, error, latency, usage) in enumerate(responses):
             if not error and text.strip():
                 valid_pairs.append((i, text, sample.claim))
@@ -151,7 +225,6 @@ class EvaluationPipeline:
             input_tokens = usage.get("input_tokens", 0) if usage else 0
             output_tokens = usage.get("output_tokens", 0) if usage else 0
             if nli_result is None:
-                # API error or empty response
                 sr = SampleResult(
                     sample_id=sample.id,
                     claim=sample.claim,
@@ -166,6 +239,7 @@ class EvaluationPipeline:
                     latency_s=latency,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    track=track,
                 )
             else:
                 hallucination = is_hallucination(sample.label, nli_result)
@@ -183,12 +257,24 @@ class EvaluationPipeline:
                     latency_s=latency,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    track=track,
                 )
             metrics.add_result(sr)
 
         console.print(
-            f"  Hallucination rate: [red]{metrics.hallucination_rate:.1%}[/red]  "
+            f"  [{track}] Hallucination rate: [red]{metrics.hallucination_rate:.1%}[/red]  "
             f"Accuracy: [green]{metrics.accuracy:.1%}[/green]  "
             f"Errors: {metrics.n_errors}"
         )
         return metrics
+
+    # ------------------------------------------------------------------
+    # Prompt builder
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_prompt(claim: str, track: str, context: str, blind_template: str) -> str:
+        """Return the user prompt for the given track and context."""
+        if track == "blind" or not context.strip():
+            return blind_template.format(claim=claim)
+        return _GROUNDED_USER_TEMPLATE.format(context=context.strip(), claim=claim)

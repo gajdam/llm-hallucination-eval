@@ -50,6 +50,15 @@ filtering:
   min_words: 8                    # drop claims shorter than N words
   filter_vague_predicates: true   # drop "[X] is/are a [word]." patterns
 
+# Knowledge Graph + IR retrieval settings
+# Set enabled: true to activate the three-track comparison (blind / kg / hybrid)
+kg:
+  enabled: true               # flip to true to run KG evaluation
+  tracks: ["blind", "kg", "hybrid"]
+  max_entities: 3              # max named entities extracted per claim
+  wikidata_timeout: 5          # seconds per Wikidata API call
+  wikipedia_timeout: 5         # seconds per Wikipedia API call
+
 # Evaluation settings
 evaluation:
   output_dir: "results"
